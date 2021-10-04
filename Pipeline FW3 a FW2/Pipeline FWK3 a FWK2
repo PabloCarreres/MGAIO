@@ -39,8 +39,7 @@ agent { label 'slave-pl' }
 	            sh "mkdir -p build/owasp"
 	            dependencyCheck additionalArguments: '--out build/owasp/ --format XML --format JSON --format HTML --format CSV', odcInstallation: env.DEPENDENCY_CHECK_INSTALLATION_ID
 	            dependencyCheckPublisher pattern: 'build/owasp/dependency-check-report.xml'
-	        }
-	        
+	        }	        
          }
        stage('Checkout MGAIO_SVN_FWK') {
                 steps {
@@ -139,5 +138,6 @@ agent { label 'slave-pl' }
             echo "Fallo"
             office365ConnectorSend color: 'FF0000', message: 'Ha ocurrido un error', status: 'Failure', webhookUrl: 'https://capgemini.webhook.office.com/webhookb2/a7bbdb5a-ae79-479f-990a-3c62df09580e@76a2ae5a-9f00-4f6b-95ed-5d33d77c4d61/IncomingWebhook/f4b9543ade7e4e3d97aa4540c472f87c/c83fb4db-1010-44e1-944f-d183dbfb99b3'      
             }  
-        }  
+        }
+    }      
 }
