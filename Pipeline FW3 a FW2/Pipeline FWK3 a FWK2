@@ -1,0 +1,143 @@
+pipeline {
+agent { label 'slave-pl' }
+    options {
+        buildDiscarder logRotator(artifactDaysToKeepStr: '7', artifactNumToKeepStr: '7', daysToKeepStr: '7', numToKeepStr: '7')
+    }
+    environment {
+        BRANCH = 'develop' 
+        GIT_URL = 'https://merca-logis.pl.s2-eu.capgemini.com/gitlab/almacenar/mgaios_online.git' 
+        GIT_USER_ID = 'cbd658e0-971f-4c6d-b786-4ee9ee5659dc'
+        MAVEN_SETTINGS_ID = '#' 
+        MAVEN_INSTALLATION_ID = '#' 
+        JAVA_INSTALLATION_ID = '#' 
+        SONAR_SERVER_ID = 'sonarqube'
+        DEPENDENCY_CHECK_INSTALLATION_ID = 'dep-check-6.1.1'
+        NODE_JS_INSTALLATION_ID = 'NodeJS LTS'
+        NEXUS_CREDENTIAL_ID = "cbd658e0-971f-4c6d-b786-4ee9ee5659dc"
+
+    }
+    tools {nodejs env.NODE_JS_INSTALLATION_ID}
+    stages {
+
+         stage('Delete Workspace'){
+            steps{
+                sh "rm -rf /home/oracle/workspace/LOGIS_ONLINE/*"
+                //sh "rm -rf /home/pl/workspace/LOGIS_ONLINE/*"
+            }
+       
+        }
+        stage('Code checkout') {
+            steps {
+                script {
+                    git credentialsId: env.GIT_USER_ID, url: env.GIT_URL, branch: env.BRANCH
+                }
+            }
+        }
+        
+       stage('Dependency Check'){
+	        steps{
+	            sh "mkdir -p build/owasp"
+	            dependencyCheck additionalArguments: '--out build/owasp/ --format XML --format JSON --format HTML --format CSV', odcInstallation: env.DEPENDENCY_CHECK_INSTALLATION_ID
+	            dependencyCheckPublisher pattern: 'build/owasp/dependency-check-report.xml'
+	        }
+	        
+         }
+       stage('Checkout MGAIO_SVN_FWK') {
+                steps {
+                    script {
+                        checkout([$class: 'SubversionSCM', additionalCredentials: [], excludedCommitMessages: '', excludedRegions: '', excludedRevprop: '', excludedUsers: '', filterChangelog: false, ignoreDirPropChanges: false, includedRegions: '', locations: [[cancelProcessOnExternalsFail: true, credentialsId: 'jenkins_svn_fwk', depthOption: 'infinity', ignoreExternalsOption: true, local: 'fwk', remote: 'http://10.68.26.71/svn/FrameworkOnline/framework/deliver/dist_2.10.0.01/bin/@HEAD']], quietOperation: true, workspaceUpdater: [$class: 'UpdateUpdater']])                }
+                    }
+         }
+        stage('MGAIO_SVN_Configuracion') {
+                steps {
+                    script {
+                        checkout([$class: 'SubversionSCM', additionalCredentials: [], excludedCommitMessages: '', excludedRegions: '', excludedRevprop: '', excludedUsers: '', filterChangelog: false, ignoreDirPropChanges: false, includedRegions: '', locations: [[cancelProcessOnExternalsFail: true, credentialsId: 'jenkins_svn_fwk', depthOption: 'infinity', ignoreExternalsOption: true, local: 'config', remote: 'http://10.68.26.71/svn/mercadona_redsum/redsum/configuracion_jenkins/logis@HEAD']], quietOperation: true, workspaceUpdater: [$class: 'UpdateUpdater']])
+                       
+                    }
+                }   
+        } 
+        stage('Build'){
+            steps{
+                withAnt(installation: 'ant165'){
+                   sh '''
+                   ant -version
+                   cd $WORKSPACE/fwk/tools/build/
+                   ant deploy-app-packaged
+                   '''
+                }
+            }
+        }
+        stage("Publish to nexus") {
+            steps {
+              withCredentials([usernameColonPassword(credentialsId: env.NEXUS_CREDENTIAL_ID, variable: 'USERPASS')]) {  
+                script{
+                   sh 'curl -v -u "$USERPASS" -F "maven2.asset1=@/home/pl/workspace/MGAIOS/modules/mgaios-ear/target/mgaios.ear" -F "maven2.asset1.extension=ear" -F "maven2.asset2=@/home/pl/workspace/MGAIOS/pom.xml" -F "maven2.asset2.extension=pom" "https://merca-logis.pl.s2-eu.capgemini.com/nexus3/service/rest/v1/components?repository=weblogic-deploy"'
+                   env.VERSION = readMavenPom().getVersion()
+                   echo "${VERSION}"
+                }
+              }
+            }
+        }
+        
+
+        stage('Downloading from Nexus') {
+            agent { label 'jenkins-gesaduan' }
+              steps {
+                withCredentials([usernameColonPassword(credentialsId: env.NEXUS_CREDENTIAL_ID, variable: 'USERPASS')]) {
+                    script{
+                          echo "${VERSION}"
+                    }
+        			sh '''
+        			set +x
+                    curl -u "$USERPASS" https://merca-logis.pl.s2-eu.capgemini.com/nexus3/repository/weblogic-deploy/es/mercadona/mgaios/mgaios/${VERSION}/mgaios-${VERSION}.ear > /home/oracle/workspace/MGAIOS/modules/mgaios-ear/target/mgaios.ear
+        	
+        			'''
+        		}	
+             }
+         }
+        stage('Analisys with SonarQube') {
+           steps {
+               script {
+               def scannerHome = tool env.SONAR_SERVER_ID;
+               	    withSonarQubeEnv(env.SONAR_SERVER_ID) {
+                   
+                   		sh "${tool(env.SONAR_SERVER_ID)}/bin/sonar-scanner \
+                		-Dsonar.projectKey=logistico.almacena.mgaios_online \
+            			-Dsonar.sources=. \
+            			-Dsonar.projectVersion=2.2.3 \
+            			-Dsonar.css.node=. \
+            			-Dsonar.host.url=http://sonarqube-core:9000/sonarqube \
+            			-Dsonar.sourceEncoding=UTF-8 \
+            			-Dsonar.java.binaries=. \
+            			-Dsonar.projectBaseDir=. \
+            			-Dsonar.sources=. \
+            			-Dsonar.exclusions=/**/target/**/*,/**/build/owasp/**/* \
+            			-Dsonar.dependencyCheck.jsonReportPath=build/owasp/dependency-check-report.json \
+                        -Dsonar.dependencyCheck.xmlReportPath=build/owasp/dependency-check-report.xml \
+                        -Dsonar.dependencyCheck.htmlReportPath=build/owasp/dependency-check-report.html \
+            			-Dsonar.projectName=MGAIOS_ONLINE"
+        
+                    }
+                }
+            }
+        }
+        stage('Deploy') {
+         agent { label 'jenkins-gesaduan'}
+             steps {
+                sh'''
+                . /opt/srv/app/wls12214/wlserver/server/bin/setWLSEnv.sh
+                java -Xms1024m -Xmx2048m weblogic.Deployer -adminurl t3://10.80.89.243:10003 -username weblogic -password welcome1 -redeploy -source /home/oracle/workspace/MGAIOS/modules/mgaios-ear/target/mgaios.ear -verbose -name mgaios
+                '''
+                }
+            }         
+    }
+    post { 
+           always { 
+                cleanWs()
+            }
+            failure {  
+            echo "Fallo"
+            office365ConnectorSend color: 'FF0000', message: 'Ha ocurrido un error', status: 'Failure', webhookUrl: 'https://capgemini.webhook.office.com/webhookb2/a7bbdb5a-ae79-479f-990a-3c62df09580e@76a2ae5a-9f00-4f6b-95ed-5d33d77c4d61/IncomingWebhook/f4b9543ade7e4e3d97aa4540c472f87c/c83fb4db-1010-44e1-944f-d183dbfb99b3'      
+            }  
+        }  
+}
