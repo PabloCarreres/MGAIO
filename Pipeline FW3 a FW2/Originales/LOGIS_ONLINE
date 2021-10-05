@@ -1,0 +1,132 @@
+pipeline {
+    agent
+    {label 'jenkins-redsu-logis'}
+   
+    environment {
+        BRANCH = 'develop' 
+        GIT_URL = 'https://merca-fresco.pl.s2-eu.capgemini.com/gitlab/logis/logis_online.git' 
+        GIT_USER_ID = 'f156715d-6525-4858-9cd5-ce8f44d81854'
+        //MAVEN_SETTINGS_ID = '3d2d3209-b7a1-4c69-9b48-17cdeaf85e4b'
+        //MAVEN_INSTALLATION_ID = 'Maven3'
+        JAVA_INSTALLATION_ID = 'OpenJDK11'
+        //JAVA_INSTALLATION='OpenJDK8'
+        NEXUS_CREDENTIAL_ID='f156715d-6525-4858-9cd5-ce8f44d81854'
+        SONAR_SERVER_ID = 'sonarqube'
+        scannerHome = tool 'sonarqube'
+        SONAR_INSTALLATION_ID = 'sonar462'
+        DEPENDENCY_CHECK_INSTALLATION_ID = 'dep-check-6.1.1'
+        NODE_JS_INSTALLATION_ID = 'NodeJS LTS'
+    }
+    tools {nodejs env.NODE_JS_INSTALLATION_ID}
+    stages {
+        
+        
+        stage('Delete Workspace'){
+            steps{
+                sh "rm -rf /home/oracle/workspace/LOGIS_ONLINE/*"
+                //sh "rm -rf /home/pl/workspace/LOGIS_ONLINE/*"
+            }
+       
+        }
+        
+        stage('Code checkout') {
+            steps {
+                script {
+                    git credentialsId: env.GIT_USER_ID, url: env.GIT_URL, branch: env.BRANCH
+                }
+            }
+        }
+        stage('Checkout JG_SVN_FWK') {
+                steps {
+                    script {
+                        checkout([$class: 'SubversionSCM', additionalCredentials: [], excludedCommitMessages: '', excludedRegions: '', excludedRevprop: '', excludedUsers: '', filterChangelog: false, ignoreDirPropChanges: false, includedRegions: '', locations: [[cancelProcessOnExternalsFail: true, credentialsId: 'jenkins_svn_fwk', depthOption: 'infinity', ignoreExternalsOption: true, local: 'fwk', remote: 'http://10.68.26.71/svn/FrameworkOnline/framework/deliver/dist_2.9.0.08/bin/@HEAD']], quietOperation: true, workspaceUpdater: [$class: 'UpdateUpdater']])                }
+                    }
+         }
+        
+        stage('JG_SVN_Configuracion') {
+                steps {
+                    script {
+                        checkout([$class: 'SubversionSCM', additionalCredentials: [], excludedCommitMessages: '', excludedRegions: '', excludedRevprop: '', excludedUsers: '', filterChangelog: false, ignoreDirPropChanges: false, includedRegions: '', locations: [[cancelProcessOnExternalsFail: true, credentialsId: 'jenkins_svn_fwk', depthOption: 'infinity', ignoreExternalsOption: true, local: 'config', remote: 'http://10.68.26.71/svn/mercadona_redsum/redsum/configuracion_jenkins/logis@HEAD']], quietOperation: true, workspaceUpdater: [$class: 'UpdateUpdater']])
+                       
+                    }
+                }   
+        }
+        
+        stage('Build'){
+            steps{
+                withAnt(installation: 'ant165'){
+                   sh '''
+                   ant -version
+                   cd $WORKSPACE/fwk/tools/build/
+                   ant deploy-app-expanded
+                   '''
+                }
+            }
+        }
+        
+        stage('Dependency Check'){
+	        steps{
+	            sh "mkdir -p build/owasp"
+	            dependencyCheck additionalArguments: '--out build/owasp/ --format XML --format JSON --format HTML --disableRetireJS --format CSV', odcInstallation: env.DEPENDENCY_CHECK_INSTALLATION_ID
+	            dependencyCheckPublisher pattern: 'build/owasp/dependency-check-report.xml'
+	        }
+	        
+    	}
+    	stage('Weblogic_Deploy') {
+            steps {
+                script {
+                    sh '''
+                    . /opt/srv/app/wls12120/wlserver/server/bin/setWLSEnv.sh
+                    java -Xms1024m -Xmx2048m weblogic.Deployer -adminurl t3://10.80.89.216:7001 -username weblogic -password welcome1 -redeploy -source /home/oracle/workspace/LOGIS_ONLINE/build/logis.ear -verbose -name logis
+                    '''
+                }
+            }   
+        }
+        
+        
+        stage('Analisys with SonarQube') {
+            //agent {label 'slave-pl'}
+            tools {
+                    jdk "OpenJDK11"
+            }
+            steps {
+                
+                 script {
+               
+               	    withSonarQubeEnv('sonarPL') {
+                   
+                   		sh "${scannerHome}/bin/sonar-scanner -Dsonar.verbose=true -X \
+                		-Dsonar.projectKey=apro.redsum.logis_online \
+            			-Dsonar.sources=. \
+            			-Dsonar.projectVersion=1.0.0 \
+            			-Dsonar.css.node=. \
+            			-Dsonar.host.url=https://merca-fresco.pl.s2-eu.capgemini.com/sonarqube \
+            			-Dsonar.sourceEncoding=UTF-8 \
+            			-Dsonar.java.binaries=. \
+            			-Dsonar.projectBaseDir=. \
+            			-Dsonar.exclusions=/**/build/owasp/**/*,/test/**/*,/fwk/**/*,/lib/**/*,/templates/**/*,/WebContent/test/**/* \
+            			-Dsonar.dependencyCheck.jsonReportPath=build/owasp/dependency-check-report.json \
+            			-Dsonar.dependencyCheck.xmlReportPath=build/owasp/dependency-check-report.xml \
+            			-Dsonar.dependencyCheck.htmlReportPath=build/owasp/dependency-check-report.html \
+            			-Dsonar.projectName=LOGIS_ONLINE" 
+       
+                    }
+                }
+            }
+        }
+        
+        
+    }
+    
+    post {
+        failure{
+            echo "Stop vpn mercadona"
+            sh '''
+            cd /opt/devops/enlace
+            ./vpn_mercadona stop
+            systemctl restart network
+            '''
+        }
+    }
+    
+}
