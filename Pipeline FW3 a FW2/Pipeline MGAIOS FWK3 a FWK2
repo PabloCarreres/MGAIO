@@ -32,7 +32,7 @@ agent { label 'slave-pl' }
             }
         }
     }
-       stage('Checkout MGAIO_SVN_FWK') {
+       stage('Checkout MGAIOS_SVN_FWK') {
                 steps {
                     script {
                         checkout([$class: 'SubversionSCM', additionalCredentials: [], excludedCommitMessages: '', excludedRegions: '', excludedRevprop: '', excludedUsers: '', filterChangelog: false, ignoreDirPropChanges: false, includedRegions: '', locations: [[cancelProcessOnExternalsFail: true, credentialsId: 'jenkins_svn_fwk', depthOption: 'infinity', ignoreExternalsOption: true, local: 'fwk', remote: 'http://10.68.26.71/svn/FrameworkOnline/framework/deliver/dist_2.10.0.01/bin/@HEAD']], quietOperation: true, workspaceUpdater: [$class: 'UpdateUpdater']])               
