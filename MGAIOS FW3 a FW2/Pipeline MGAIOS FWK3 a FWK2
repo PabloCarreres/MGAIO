@@ -7,16 +7,13 @@ pipeline {
         GIT_URL = 'https://merca-logis.pl.s2-eu.capgemini.com/gitlab/almacenar/mgaios_online.git' 
         GIT_USER_ID = 'cbd658e0-971f-4c6d-b786-4ee9ee5659dc'
         JAVA_INSTALLATION_ID = 'java8'
-        //JAVA_INSTALLATION='OpenJDK8'
+        //JAVA_INSTALLATION='java8'
         ANT_INSTALLATION_ID = 'ant165'
         NEXUS_CREDENTIAL_ID= 'cbd658e0-971f-4c6d-b786-4ee9ee5659dc'
         SONAR_SERVER_ID = 'sonarqube'
         SONAR_INSTALLATION_ID = 'sonar462'
         DEPENDENCY_CHECK_INSTALLATION_ID = 'dep-check-6.1.1'
-        NODE_JS_INSTALLATION_ID = 'NodeJS LTS'
     }
-    tools 
-        {nodejs env.NODE_JS_INSTALLATION_ID}
     stages {
         stage('Code checkout') {
             steps {
@@ -98,7 +95,6 @@ pipeline {
             }
         }
          stage('Downloading from Nexus') {
-            agent { label 'jenkins-gesaduan' }
               steps {
                 withCredentials([usernameColonPassword(credentialsId: env.NEXUS_CREDENTIAL_ID, variable: 'USERPASS')]) {
                     script{
@@ -112,7 +108,6 @@ pipeline {
              }
         }
         stage('Deploy') {
-         agent { label 'jenkins-gesaduan'}
              steps {
                 sh'''
                 . /opt/srv/app/wls12214/wlserver/server/bin/setWLSEnv.sh
